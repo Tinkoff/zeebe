@@ -135,7 +135,7 @@ github.com/pkg/errors
 github.com/pmezard/go-difflib/difflib
 # github.com/sirupsen/logrus v1.7.0
 github.com/sirupsen/logrus
-# github.com/spf13/cobra v1.2.1
+# github.com/spf13/cobra v1.4.0
 ## explicit
 github.com/spf13/cobra
 # github.com/spf13/pflag v1.0.5
@@ -150,6 +150,7 @@ github.com/stretchr/testify/suite
 github.com/testcontainers/testcontainers-go
 github.com/testcontainers/testcontainers-go/wait
 # go.opencensus.io v0.23.0
+## explicit
 go.opencensus.io
 go.opencensus.io/internal
 go.opencensus.io/trace
@@ -186,6 +187,7 @@ golang.org/x/text/unicode/norm
 golang.org/x/xerrors
 golang.org/x/xerrors/internal
 # google.golang.org/appengine v1.6.7
+## explicit
 google.golang.org/appengine/internal
 google.golang.org/appengine/internal/base
 google.golang.org/appengine/internal/datastore
@@ -194,6 +196,7 @@ google.golang.org/appengine/internal/remote_api
 google.golang.org/appengine/internal/urlfetch
 google.golang.org/appengine/urlfetch
 # google.golang.org/genproto v0.0.0-20210602131652-f16073e35f0c
+## explicit
 google.golang.org/genproto/googleapis/rpc/status
 # google.golang.org/grpc v1.41.0
 ## explicit
@@ -280,4 +283,5 @@ google.golang.org/protobuf/types/known/timestamppb
 ## explicit
 gopkg.in/yaml.v2
 # gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
+## explicit
 gopkg.in/yaml.v3
