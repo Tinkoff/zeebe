@@ -2,13 +2,15 @@ package testcontainers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/go-connections/nat"
-	"github.com/pkg/errors"
 
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -39,17 +41,21 @@ type Container interface {
 	Ports(context.Context) (nat.PortMap, error)                     // get all exposed ports
 	SessionID() string                                              // get session id
 	Start(context.Context) error                                    // start the container
+	Stop(context.Context, *time.Duration) error                     // stop the container
 	Terminate(context.Context) error                                // terminate the container
 	Logs(context.Context) (io.ReadCloser, error)                    // Get logs of the container
 	FollowOutput(LogConsumer)
 	StartLogProducer(context.Context) error
 	StopLogProducer() error
 	Name(context.Context) (string, error)                        // get container name
+	State(context.Context) (*types.ContainerState, error)        // returns container's running state
 	Networks(context.Context) ([]string, error)                  // get container networks
 	NetworkAliases(context.Context) (map[string][]string, error) // get container network aliases for a network
 	Exec(ctx context.Context, cmd []string) (int, error)
 	ContainerIP(context.Context) (string, error) // get container ip
+	CopyToContainer(ctx context.Context, fileContent []byte, containerFilePath string, fileMode int64) error
 	CopyFileToContainer(ctx context.Context, hostFilePath string, containerFilePath string, fileMode int64) error
+	CopyFileFromContainer(ctx context.Context, filePath string) (io.ReadCloser, error)
 }
 
 // ImageBuildInfo defines what is needed to build an image
@@ -80,8 +86,7 @@ type ContainerRequest struct {
 	ExposedPorts    []string // allow specifying protocol info
 	Cmd             []string
 	Labels          map[string]string
-	BindMounts      map[string]string
-	VolumeMounts    map[string]string
+	Mounts          ContainerMounts
 	Tmpfs           map[string]string
 	RegistryCred    string
 	WaitingFor      wait.Strategy
@@ -90,15 +95,38 @@ type ContainerRequest struct {
 	Privileged      bool                // for starting privileged container
 	Networks        []string            // for specifying network names
 	NetworkAliases  map[string][]string // for specifying network aliases
-	SkipReaper      bool                // indicates whether we skip setting up a reaper for this
-	ReaperImage     string              // alternative reaper image
-	AutoRemove      bool                // if set to true, the container will be removed from the host when stopped
 	NetworkMode     container.NetworkMode
-	AlwaysPullImage bool // Always pull image
+	Resources       container.Resources
+	User            string // for specifying uid:gid
+	SkipReaper      bool   // indicates whether we skip setting up a reaper for this
+	ReaperImage     string // alternative reaper image
+	AutoRemove      bool   // if set to true, the container will be removed from the host when stopped
+	AlwaysPullImage bool   // Always pull image
+	ImagePlatform   string // ImagePlatform describes the platform which the image runs on.
 }
 
-// ProviderType is an enum for the possible providers
-type ProviderType int
+type (
+	// ProviderType is an enum for the possible providers
+	ProviderType int
+
+	// GenericProviderOptions defines options applicable to all providers
+	GenericProviderOptions struct {
+		Logger Logging
+	}
+
+	// GenericProviderOption defines a common interface to modify GenericProviderOptions
+	// These options can be passed to GetProvider in a variadic way to customize the returned GenericProvider instance
+	GenericProviderOption interface {
+		ApplyGenericTo(opts *GenericProviderOptions)
+	}
+
+	// GenericProviderOptionFunc is a shorthand to implement the GenericProviderOption interface
+	GenericProviderOptionFunc func(opts *GenericProviderOptions)
+)
+
+func (f GenericProviderOptionFunc) ApplyGenericTo(opts *GenericProviderOptions) {
+	f(opts)
+}
 
 // possible provider types
 const (
@@ -106,12 +134,20 @@ const (
 )
 
 // GetProvider provides the provider implementation for a certain type
-func (t ProviderType) GetProvider() (GenericProvider, error) {
+func (t ProviderType) GetProvider(opts ...GenericProviderOption) (GenericProvider, error) {
+	opt := &GenericProviderOptions{
+		Logger: Logger,
+	}
+
+	for _, o := range opts {
+		o.ApplyGenericTo(opt)
+	}
+
 	switch t {
 	case ProviderDocker:
-		provider, err := NewDockerProvider()
+		provider, err := NewDockerProvider(Generic2DockerOptions(opts...)...)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to create Docker provider")
+			return nil, fmt.Errorf("%w, failed to create Docker provider", err)
 		}
 		return provider, nil
 	}
@@ -121,10 +157,10 @@ func (t ProviderType) GetProvider() (GenericProvider, error) {
 // Validate ensures that the ContainerRequest does not have invalid parameters configured to it
 // ex. make sure you are not specifying both an image as well as a context
 func (c *ContainerRequest) Validate() error {
-
 	validationMethods := []func() error{
 		c.validateContextAndImage,
 		c.validateContextOrImageIsSpecified,
+		c.validateMounts,
 	}
 
 	var err error
@@ -188,5 +224,20 @@ func (c *ContainerRequest) validateContextOrImageIsSpecified() error {
 		return errors.New("you must specify either a build context or an image")
 	}
 
+	return nil
+}
+
+func (c *ContainerRequest) validateMounts() error {
+	targets := make(map[string]bool, len(c.Mounts))
+
+	for idx := range c.Mounts {
+		m := c.Mounts[idx]
+		targetPath := m.Target.Target()
+		if targets[targetPath] {
+			return fmt.Errorf("%w: %s", ErrDuplicateMountTarget, targetPath)
+		} else {
+			targets[targetPath] = true
+		}
+	}
 	return nil
 }
